@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self' http://localhost:* ws://localhost:*; img-src 'self' file: data: https://*.tile.openstreetmap.org https://server.arcgisonline.com blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*;">
+  <title>GeoTagger</title>
+
+</head>
+<body>
+
+<div id="titlebar">
+  <span id="titlebar-title">GeoTagger</span>
+</div>
+
+<div id="exiftool-warning" class="banner-warning hidden">
+  ⚠ exiftool が見つかりません。<code>brew install exiftool</code> でインストールしてください。
+</div>
+
+<div id="app">
+
+  <!-- 左ペイン -->
+  <aside id="sidebar">
+
+    <section class="sidebar-section">
+      <label class="section-label">GPX ファイル</label>
+      <div id="gpx-drop-zone" class="drop-zone">
+        <span id="gpx-path-display" class="path-display">ここにGPXをドロップ</span>
+      </div>
+      <div class="btn-row">
+        <button id="btn-select-gpx" class="btn-secondary">選択…</button>
+      </div>
+      <div id="gpx-info" class="info-text hidden"></div>
+    </section>
+
+    <section class="sidebar-section">
+      <label class="section-label">写真フォルダ</label>
+      <div class="input-row">
+        <span id="photo-folder-display" class="path-display">—</span>
+        <button id="btn-select-folder" class="btn-secondary">選択…</button>
+      </div>
+      <div id="photo-info" class="info-text hidden"></div>
+    </section>
+
+    <section class="sidebar-section">
+      <label class="section-label">タイムゾーン</label>
+      <div class="radio-row">
+        <label><input type="radio" name="tz-mode" value="auto" checked> Exif 自動（推奨）</label>
+      </div>
+      <div class="radio-row">
+        <label>
+          <input type="radio" name="tz-mode" value="manual"> 手動:
+          <select id="tz-offset-select" disabled></select>
+        </label>
+      </div>
+      <div id="tz-warning" class="info-text warning hidden">
+        OffsetTimeOriginal が取得できないファイルがあります。
+      </div>
+    </section>
+
+    <section class="sidebar-section">
+      <label class="section-label">オプション</label>
+      <label class="checkbox-row">
+        <input type="checkbox" id="overwrite-gps"> 既存の GPS タグを上書き
+      </label>
+      <div class="input-row-labeled">
+        <span>最大時間差</span>
+        <input type="number" id="max-time-diff" value="3600" min="1" max="86400"> 秒
+      </div>
+    </section>
+
+    <div class="action-buttons">
+      <button id="btn-preview" class="btn-primary hidden" disabled>プレビュー</button>
+      <button id="btn-apply"   class="btn-accent"   disabled>付与</button>
+    </div>
+
+  </aside>
+
+  <!-- 右ペイン -->
+  <div id="right-pane">
+    <div id="map-container">
+      <div id="map"></div>
+      <button id="btn-tile" class="btn-tile" data-tile="street">衛星</button>
+    </div>
+    <div id="resize-handle"></div>
+    <div id="preview-panel">
+      <div id="preview-placeholder" class="preview-placeholder">写真リストから行を選択するとプレビューが表示されます</div>
+      <div id="preview-content" class="hidden">
+        <img id="preview-img" src="" alt="">
+        <div id="preview-meta">
+          <div class="meta-filename" id="meta-filename"></div>
+          <table class="meta-table">
+            <tr><th>撮影時刻</th><td id="meta-datetime"></td></tr>
+            <tr><th>UTC</th>    <td id="meta-utc"></td></tr>
+            <tr><th>座標</th>   <td id="meta-coords"></td></tr>
+            <tr><th>高度</th>   <td id="meta-alt"></td></tr>
+            <tr><th>時間差</th> <td id="meta-diff"></td></tr>
+            <tr><th>状態</th>   <td id="meta-status"></td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- 写真リスト -->
+<div id="photo-list-container">
+  <div id="photo-list-header">
+    <span id="photo-list-summary"></span>
+  </div>
+  <div id="photo-list-scroll">
+    <table id="photo-table">
+      <thead>
+        <tr>
+          <th>ファイル名</th>
+          <th>撮影時刻</th>
+          <th>UTC</th>
+          <th>座標</th>
+          <th>時間差</th>
+          <th>状態</th>
+        </tr>
+      </thead>
+      <tbody id="photo-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+</body>
+</html>
