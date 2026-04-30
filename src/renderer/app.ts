@@ -11,6 +11,11 @@ let photoItems: PhotoItem[] = [];
 let matchResults: MatchResult[] = [];
 let selectedIndex = -1;
 
+type SortCol = 'filename' | 'datetime' | 'utc' | 'coord' | 'diff' | 'status';
+type SortDir = 'asc' | 'desc';
+let sortCol: SortCol = 'utc';
+let sortDir: SortDir = 'asc';
+
 // ===== DOM ヘルパー =====
 function $<T extends HTMLElement>(id: string): T {
   return document.getElementById(id) as T;
@@ -22,18 +27,16 @@ window.addEventListener('DOMContentLoaded', () => { init(); });
 async function init(): Promise<void> {
   buildTzSelect();
   initMap('map');
-  setupResizeHandle();
 
   const ver = await window.api.checkExiftool();
   if (!ver) $('exiftool-warning').classList.remove('hidden');
 
-  const [folder, tzMode, tzOffset, overwrite, maxDiff, paneH] = await Promise.all([
+  const [folder, tzMode, tzOffset, overwrite, maxDiff] = await Promise.all([
     window.api.getSetting('photoFolder'),
     window.api.getSetting('tzMode'),
     window.api.getSetting('tzOffset'),
     window.api.getSetting('overwriteGps'),
     window.api.getSetting('maxTimeDiff'),
-    window.api.getSetting('previewPaneHeight'),
   ]);
 
   const tzModeVal = (tzMode as string) ?? 'auto';
@@ -43,7 +46,6 @@ async function init(): Promise<void> {
   ($<HTMLSelectElement>('tz-offset-select')).value = String(tzOffsetVal);
   ($<HTMLInputElement>('overwrite-gps')).checked = (overwrite as boolean) ?? false;
   ($<HTMLInputElement>('max-time-diff')).value = String((maxDiff as number) ?? 3600);
-  if (paneH) $('preview-panel').style.height = `${paneH}px`;
   toggleTzSelect(tzModeVal === 'manual');
 
   if (folder) await loadPhotoFolder(folder as string);
@@ -109,6 +111,22 @@ function setupEvents(): void {
     window.api.setSetting('maxTimeDiff', parseInt((e.target as HTMLInputElement).value, 10));
   });
 
+  // テーブルヘッダーのソート
+  document.querySelectorAll<HTMLTableCellElement>('#photo-table thead th').forEach((th) => {
+    const col = th.dataset['col'] as SortCol | undefined;
+    if (!col) return;
+    th.style.cursor = 'pointer';
+    th.addEventListener('click', () => {
+      if (sortCol === col) {
+        sortDir = sortDir === 'asc' ? 'desc' : 'asc';
+      } else {
+        sortCol = col;
+        sortDir = 'asc';
+      }
+      renderPhotoList(matchResults);
+    });
+  });
+
   $('btn-apply').addEventListener('click', runApply);
   $('btn-tile').addEventListener('click', () => {
     const btn = $<HTMLButtonElement>('btn-tile');
@@ -134,6 +152,8 @@ async function loadGpxFile(filePath: string): Promise<void> {
 }
 
 // ===== 写真フォルダ読み込み =====
+const EXIF_BATCH_SIZE = 200;
+
 async function loadPhotoFolder(folderPath: string): Promise<void> {
   $('photo-folder-display').textContent = folderPath;
   const info = $('photo-info');
@@ -149,12 +169,39 @@ async function loadPhotoFolder(folderPath: string): Promise<void> {
     return;
   }
 
-  const raw = await window.api.readExifBatch(paths);
-  photoItems = normalizeExif(raw);
+  // オーバーレイ表示
+  const overlay      = $('load-overlay');
+  const overlayBar   = $('load-overlay-bar');
+  const overlayLabel = $('load-overlay-label');
+  const overlayCount = $('load-overlay-count');
+  overlayLabel.textContent = '写真を読み込み中…';
+  overlayBar.style.width   = '0%';
+  overlayCount.textContent = `0 / ${paths.length}`;
+  overlay.classList.remove('hidden');
+
+  // 分割バッチで EXIF 読み込み
+  const allRaw: Record<string, unknown>[] = [];
+  setBusy(true);
+  try {
+    for (let i = 0; i < paths.length; i += EXIF_BATCH_SIZE) {
+      const batch = paths.slice(i, i + EXIF_BATCH_SIZE);
+      const raw   = await window.api.readExifBatch(batch);
+      allRaw.push(...raw);
+      const done = Math.min(i + EXIF_BATCH_SIZE, paths.length);
+      overlayBar.style.width   = `${Math.round(done / paths.length * 100)}%`;
+      overlayCount.textContent = `${done} / ${paths.length}`;
+    }
+  } finally {
+    overlay.classList.add('hidden');
+    setBusy(false);
+  }
+
+  photoItems   = normalizeExif(allRaw);
   matchResults = photoItems.map(p => ({ ...p, utcTime: null, status: 'pending' as const, statusLabel: '—', match: null }));
 
   const noOffset = photoItems.filter(p => !p.offsetStr);
   $('tz-warning').classList.toggle('hidden', noOffset.length === 0);
+  $('tz-warning-count').textContent = String(noOffset.length);
 
   info.textContent = `${photoItems.length} 枚`;
   renderPhotoList(matchResults);
@@ -202,6 +249,14 @@ async function runApply(): Promise<void> {
 
   setBusy(true);
   let success = 0, failed = 0;
+  const total = targets.length;
+
+  const progressWrap  = $('apply-progress');
+  const progressBar   = $('apply-progress-bar');
+  const progressLabel = $('apply-progress-label');
+  progressWrap.classList.remove('hidden');
+  progressBar.style.width = '0%';
+  progressLabel.textContent = `0 / ${total}`;
 
   try {
     const overwrite = $<HTMLInputElement>('overwrite-gps').checked;
@@ -213,18 +268,58 @@ async function runApply(): Promise<void> {
         lon: r.match.lon,
         ele: r.match.ele,
         overwrite,
+        utcTime: r.utcTime ? r.utcTime.toISOString() : null,
+        datetimeRaw: r.datetimeRaw,
       };
 
       const ok = await window.api.writeGps(payload);
       if (ok) { r.status = 'done'; r.statusLabel = '✓ 書込済'; success++; }
       else    { r.status = 'error'; r.statusLabel = '⚠ 書込失敗'; failed++; }
+
+      const done = success + failed;
+      progressBar.style.width = `${Math.round(done / total * 100)}%`;
+      progressLabel.textContent = `${done} / ${total}（✓ ${success}${failed ? `  ⚠ ${failed}` : ''}）`;
     }
 
     renderPhotoList(matchResults);
+    progressLabel.textContent = `完了：成功 ${success} 件 / 失敗 ${failed} 件`;
     alert(`完了：成功 ${success} 件 / 失敗 ${failed} 件`);
   } finally {
     setBusy(false);
+    $('apply-progress').classList.add('hidden');
   }
+}
+
+// ===== ソート =====
+function sortKey(r: MatchResult, col: SortCol): string | number {
+  switch (col) {
+    case 'filename': return basename(r.filePath).toLowerCase();
+    case 'datetime': return r.datetime ? r.datetime.getTime() : -Infinity;
+    case 'utc':      return r.utcTime ? r.utcTime.getTime() : -Infinity;
+    case 'coord':    return r.match ? r.match.lat : -Infinity;
+    case 'diff':     return r.match ? r.match.diffSec : Infinity;
+    case 'status':   return r.statusLabel;
+  }
+}
+
+function buildSortedIndices(results: MatchResult[]): number[] {
+  const indices = results.map((_, i) => i);
+  indices.sort((a, b) => {
+    const ka = sortKey(results[a], sortCol);
+    const kb = sortKey(results[b], sortCol);
+    const cmp = ka < kb ? -1 : ka > kb ? 1 : 0;
+    return sortDir === 'asc' ? cmp : -cmp;
+  });
+  return indices;
+}
+
+function updateSortHeaders(): void {
+  document.querySelectorAll<HTMLTableCellElement>('#photo-table thead th').forEach((th) => {
+    const col = th.dataset['col'] as SortCol | undefined;
+    if (!col) return;
+    th.classList.toggle('sort-active', col === sortCol);
+    th.dataset['sortDir'] = col === sortCol ? sortDir : '';
+  });
 }
 
 // ===== 写真リスト描画 =====
@@ -235,13 +330,17 @@ function renderPhotoList(results: MatchResult[]): void {
     ? `${results.length} 枚${ok ? `  ✓ ${ok}` : ''}${warn ? `  ⚠ ${warn}` : ''}`
     : '';
 
+  const sortedIndices = buildSortedIndices(results);
+  updateSortHeaders();
+
   const tbody = $('photo-tbody');
   tbody.innerHTML = '';
 
-  results.forEach((r, i) => {
+  sortedIndices.forEach((realIdx) => {
+    const r = results[realIdx];
     const tr = document.createElement('tr');
-    tr.dataset['index'] = String(i);
-    if (i === selectedIndex) tr.classList.add('selected');
+    tr.dataset['realIndex'] = String(realIdx);
+    if (realIdx === selectedIndex) tr.classList.add('selected');
 
     const dtStr  = r.datetimeRaw ? r.datetimeRaw.slice(0, 16).replace(/^(\d{4}):(\d{2}):(\d{2})/, '$1-$2-$3') + (r.offsetStr ? ` ${r.offsetStr}` : '') : '—';
     const utcStr = r.utcTime ? r.utcTime.toISOString().replace('T', ' ').slice(0, 19) : '—';
@@ -265,18 +364,18 @@ function renderPhotoList(results: MatchResult[]): void {
       tr.appendChild(td);
     });
 
-    tr.addEventListener('click', () => selectRow(i));
+    tr.addEventListener('click', () => selectRow(realIdx));
     tbody.appendChild(tr);
   });
 }
 
 // ===== 行選択 =====
-function selectRow(index: number): void {
-  selectedIndex = index;
-  document.querySelectorAll<HTMLTableRowElement>('#photo-tbody tr').forEach((tr, i) => {
-    tr.classList.toggle('selected', i === index);
+function selectRow(realIndex: number): void {
+  selectedIndex = realIndex;
+  document.querySelectorAll<HTMLTableRowElement>('#photo-tbody tr').forEach(tr => {
+    tr.classList.toggle('selected', Number(tr.dataset['realIndex']) === realIndex);
   });
-  const r = matchResults[index];
+  const r = matchResults[realIndex];
   if (!r) return;
   showPreview(r);
   if (r.match) highlightPin(r.filePath);
@@ -287,7 +386,11 @@ function showPreview(r: MatchResult): void {
   $('preview-placeholder').classList.add('hidden');
   $('preview-content').classList.remove('hidden');
 
-  ($<HTMLImageElement>('preview-img')).src = `file://${r.filePath}`;
+  const img = $<HTMLImageElement>('preview-img');
+  img.src = '';
+  window.api.readImageBase64(r.filePath).then((data: string | null) => {
+    if (data) img.src = data;
+  });
   $('meta-filename').textContent  = basename(r.filePath);
   $('meta-datetime').textContent  = r.datetimeRaw
     ? r.datetimeRaw.slice(0, 16).replace(/^(\d{4}):(\d{2}):(\d{2})/, '$1-$2-$3') + (r.offsetStr ? ` (${r.offsetStr})` : '')
@@ -323,6 +426,8 @@ function updateActionButtons(): void {
 
 function setBusy(busy: boolean): void {
   $<HTMLButtonElement>('btn-apply').disabled = busy;
+  $<HTMLButtonElement>('btn-select-folder').disabled = busy;
+  $<HTMLButtonElement>('btn-select-gpx').disabled = busy;
 }
 
 function statusClass(status: string): string {
@@ -332,26 +437,3 @@ function statusClass(status: string): string {
 
 function basename(p: string): string { return p.split('/').pop() ?? p; }
 
-function setupResizeHandle(): void {
-  const handle = $('resize-handle');
-  const panel  = $('preview-panel');
-  let startY = 0, startH = 0;
-
-  handle.addEventListener('mousedown', (e: MouseEvent) => {
-    startY = e.clientY;
-    startH = panel.offsetHeight;
-    document.addEventListener('mousemove', onMove);
-    document.addEventListener('mouseup',   onUp);
-  });
-
-  function onMove(e: MouseEvent): void {
-    const h = Math.max(60, Math.min(500, startH - (e.clientY - startY)));
-    panel.style.height = `${h}px`;
-  }
-
-  function onUp(): void {
-    window.api.setSetting('previewPaneHeight', panel.offsetHeight);
-    document.removeEventListener('mousemove', onMove);
-    document.removeEventListener('mouseup',   onUp);
-  }
-}
