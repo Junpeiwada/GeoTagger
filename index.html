@@ -33,11 +33,13 @@
     <section class="sidebar-section">
       <label class="section-label">GPX ファイル</label>
       <div id="gpx-drop-zone" class="drop-zone">
-        <span id="gpx-path-display" class="path-display">ここにGPXをドロップ</span>
+        <span class="path-display">ここにGPXをドロップ（複数可）</span>
       </div>
       <div class="btn-row">
         <button id="btn-select-gpx" class="btn-secondary">選択…</button>
+        <button id="btn-clear-gpx" class="btn-secondary" disabled>クリア</button>
       </div>
+      <ul id="gpx-file-list"></ul>
       <div id="gpx-info" class="info-text hidden"></div>
     </section>
 

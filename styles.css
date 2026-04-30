@@ -137,6 +137,40 @@ html, body {
 .info-text         { font-size: 11px; color: var(--text-muted); margin-top: 5px; }
 .info-text.warning { color: var(--warning); }
 
+/* GPX ファイルリスト */
+#gpx-file-list {
+  list-style: none;
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.gpx-file-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text);
+}
+.gpx-file-item span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.gpx-remove-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 2px;
+  line-height: 1;
+}
+.gpx-remove-btn:hover { color: var(--danger); }
+
 /* ラジオ */
 .radio-row { margin-bottom: 5px; font-size: 12px; }
 .radio-row label { display: flex; align-items: center; gap: 6px; cursor: pointer; }

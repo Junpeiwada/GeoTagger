@@ -7,6 +7,7 @@ import { GpxData, MatchResult, PhotoItem, WriteGpsPayload } from './types';
 
 // ===== 状態 =====
 let gpxData: GpxData | null = null;
+let loadedGpxFiles: { path: string; data: GpxData }[] = [];
 let photoItems: PhotoItem[] = [];
 let matchResults: MatchResult[] = [];
 let selectedIndex = -1;
@@ -61,7 +62,7 @@ function setupEvents(): void {
     e.preventDefault();
     dragCounter++;
     const dt = (e as DragEvent).dataTransfer;
-    if (dt?.items.length === 1) $('gpx-drop-zone').classList.add('drag-over');
+    if (dt && dt.items.length >= 1) $('gpx-drop-zone').classList.add('drag-over');
   });
   document.addEventListener('dragover', e => { e.preventDefault(); });
   document.addEventListener('dragleave', () => {
@@ -75,15 +76,21 @@ function setupEvents(): void {
     e.preventDefault();
     dragCounter = 0;
     $('gpx-drop-zone').classList.remove('drag-over');
-    const file = (e as DragEvent).dataTransfer?.files[0];
-    if (file && /\.gpx$/i.test(file.name)) {
-      await loadGpxFile((file as File & { path: string }).path);
+    const files = Array.from((e as DragEvent).dataTransfer?.files ?? []);
+    for (const file of files) {
+      if (/\.gpx$/i.test(file.name)) {
+        await addGpxFile((file as File & { path: string }).path);
+      }
     }
   });
 
   $('btn-select-gpx').addEventListener('click', async () => {
-    const p = await window.api.selectGpx();
-    if (p) await loadGpxFile(p);
+    const paths = await window.api.selectGpx();
+    if (paths) for (const p of paths) await addGpxFile(p);
+  });
+
+  $('btn-clear-gpx').addEventListener('click', () => {
+    clearGpxFiles();
   });
 
   $('btn-select-folder').addEventListener('click', async () => {
@@ -138,17 +145,82 @@ function setupEvents(): void {
 }
 
 // ===== GPX 読み込み =====
-async function loadGpxFile(filePath: string): Promise<void> {
+async function addGpxFile(filePath: string): Promise<void> {
+  // 同じファイルの重複追加を防ぐ
+  if (loadedGpxFiles.some(f => f.path === filePath)) return;
   const xml = await window.api.readFile(filePath);
   if (!xml) return;
-  gpxData = parseGpx(xml);
-  $('gpx-path-display').textContent = filePath.split('/').pop() ?? filePath;
-  const info = $('gpx-info');
-  info.textContent = gpxSummary(gpxData);
-  info.classList.remove('hidden');
+  const data = parseGpx(xml);
+  if (!data.points.length) return;
+  loadedGpxFiles.push({ path: filePath, data });
+  gpxData = mergeGpxFiles(loadedGpxFiles.map(f => f.data));
+  renderGpxList();
   drawGpxTrack(gpxData.points);
   updateActionButtons();
   if (photoItems.length) await runPreview();
+}
+
+function clearGpxFiles(): void {
+  loadedGpxFiles = [];
+  gpxData = null;
+  matchResults = photoItems.map(p => ({ ...p, utcTime: null, status: 'pending' as const, statusLabel: '—', match: null }));
+  renderGpxList();
+  renderPhotoList(matchResults);
+  drawGpxTrack([]);
+  updateActionButtons();
+}
+
+async function removeGpxFile(filePath: string): Promise<void> {
+  loadedGpxFiles = loadedGpxFiles.filter(f => f.path !== filePath);
+  gpxData = loadedGpxFiles.length ? mergeGpxFiles(loadedGpxFiles.map(f => f.data)) : null;
+  if (!gpxData) {
+    matchResults = photoItems.map(p => ({ ...p, utcTime: null, status: 'pending' as const, statusLabel: '—', match: null }));
+    renderPhotoList(matchResults);
+  }
+  renderGpxList();
+  drawGpxTrack(gpxData?.points ?? []);
+  updateActionButtons();
+  if (gpxData && photoItems.length) await runPreview();
+}
+
+function mergeGpxFiles(dataList: GpxData[]): GpxData {
+  const allPoints = dataList.flatMap(d => d.points);
+  allPoints.sort((a, b) => a.time.getTime() - b.time.getTime());
+  const dates = allPoints.map(p => p.time);
+  return {
+    points: allPoints,
+    dateMin: dates.length ? dates[0] : null,
+    dateMax: dates.length ? dates[dates.length - 1] : null,
+  };
+}
+
+function renderGpxList(): void {
+  const ul = $('gpx-file-list');
+  ul.innerHTML = '';
+  loadedGpxFiles.forEach(({ path: fp }) => {
+    const li = document.createElement('li');
+    li.className = 'gpx-file-item';
+    const name = document.createElement('span');
+    name.textContent = fp.split('/').pop() ?? fp;
+    name.title = fp;
+    const btn = document.createElement('button');
+    btn.textContent = '✕';
+    btn.className = 'gpx-remove-btn';
+    btn.addEventListener('click', () => removeGpxFile(fp));
+    li.appendChild(name);
+    li.appendChild(btn);
+    ul.appendChild(li);
+  });
+
+  const info = $('gpx-info');
+  if (gpxData && gpxData.points.length) {
+    info.textContent = gpxSummary(gpxData);
+    info.classList.remove('hidden');
+  } else {
+    info.classList.add('hidden');
+  }
+
+  $<HTMLButtonElement>('btn-clear-gpx').disabled = loadedGpxFiles.length === 0;
 }
 
 // ===== 写真フォルダ読み込み =====
@@ -428,6 +500,7 @@ function setBusy(busy: boolean): void {
   $<HTMLButtonElement>('btn-apply').disabled = busy;
   $<HTMLButtonElement>('btn-select-folder').disabled = busy;
   $<HTMLButtonElement>('btn-select-gpx').disabled = busy;
+  $<HTMLButtonElement>('btn-clear-gpx').disabled = busy || loadedGpxFiles.length === 0;
 }
 
 function statusClass(status: string): string {

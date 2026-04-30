@@ -3,10 +3,89 @@ declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
 import { app, BrowserWindow, ipcMain, dialog, session } from 'electron';
 import * as path from 'path';
-import { execFile } from 'child_process';
+import { execFile, spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import Store from 'electron-store';
 import { find as findTz, preCache as preCacheTz } from 'geo-tz';
+
+// ===== exiftool 常駐デーモン =====
+class ExiftoolDaemon {
+  private proc: ChildProcess | null = null;
+  private buf = '';
+  private queue: Array<{ resolve: (v: Record<string, unknown>[]) => void }> = [];
+
+  start(): void {
+    if (this.proc) return;
+    this.proc = spawn('exiftool', ['-stay_open', 'True', '-@', '-'], {
+      stdio: ['pipe', 'pipe', 'ignore'],
+    });
+    this.proc.stdout!.setEncoding('utf-8');
+    this.proc.stdout!.on('data', (chunk: string) => {
+      this.buf += chunk;
+      // exiftool は各 -execute の応答末尾に "{ready}\n" を出力する
+      const readyMarker = '{ready}\n';
+      let pos: number;
+      while ((pos = this.buf.indexOf(readyMarker)) !== -1) {
+        const block = this.buf.slice(0, pos).trim();
+        this.buf = this.buf.slice(pos + readyMarker.length);
+        const waiter = this.queue.shift();
+        if (!waiter) continue;
+        try {
+          waiter.resolve(block ? JSON.parse(block) : []);
+        } catch {
+          waiter.resolve([]);
+        }
+      }
+    });
+    this.proc.on('exit', () => {
+      this.proc = null;
+      // 未処理の待機者を空配列で解決して詰まらせない
+      for (const w of this.queue) w.resolve([]);
+      this.queue = [];
+    });
+  }
+
+  readExifBatch(filePaths: string[]): Promise<Record<string, unknown>[]> {
+    if (!this.proc || !this.proc.stdin) {
+      return Promise.resolve([]);
+    }
+    return new Promise((resolve) => {
+      this.queue.push({ resolve });
+      try {
+        const lines = [
+          '-json',
+          '-DateTimeOriginal',
+          '-OffsetTimeOriginal',
+          '-GPSLatitude',
+          '-GPSLongitude',
+          '-GPSAltitude',
+          '-n',
+          ...filePaths,
+          '-execute',
+          '',
+        ].join('\n');
+        this.proc!.stdin!.write(lines);
+      } catch {
+        this.queue.pop();
+        resolve([]);
+      }
+    });
+  }
+
+  terminate(): void {
+    const proc = this.proc;
+    if (!proc) return;
+    this.proc = null;
+    try {
+      proc.stdin?.write('-stay_open\nFalse\n');
+      proc.stdin?.end();
+    } catch {
+      proc.kill();
+    }
+  }
+}
+
+const exiftoolDaemon = new ExiftoolDaemon();
 
 interface StoreSchema {
   photoFolder: string;
@@ -83,11 +162,14 @@ app.whenReady().then(() => {
     });
   });
 
+  exiftoolDaemon.start();
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
+
+app.on('will-quit', () => exiftoolDaemon.terminate());
 
 
 // exiftool の存在確認
@@ -107,13 +189,13 @@ ipcMain.handle('select-folder', async (): Promise<string | null> => {
   return result.canceled ? null : result.filePaths[0];
 });
 
-// GPX ファイル選択ダイアログ
-ipcMain.handle('select-gpx', async (): Promise<string | null> => {
+// GPX ファイル選択ダイアログ（複数選択対応）
+ipcMain.handle('select-gpx', async (): Promise<string[] | null> => {
   const result = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openFile'],
+    properties: ['openFile', 'multiSelections'],
     filters: [{ name: 'GPX Files', extensions: ['gpx'] }],
   });
-  return result.canceled ? null : result.filePaths[0];
+  return result.canceled ? null : result.filePaths;
 });
 
 // ファイルをテキストとして読み込み（.gpx のみ許可）
@@ -137,25 +219,10 @@ ipcMain.handle('list-jpegs', (_event, folderPath: string): string[] => {
   }
 });
 
-// EXIF 一括取得（exiftool -json）
+// EXIF 一括取得（exiftool -stay_open デーモン経由）
 ipcMain.handle('read-exif-batch', (_event, filePaths: string[]): Promise<Record<string, unknown>[]> => {
   if (!filePaths.length) return Promise.resolve([]);
-  return new Promise((resolve) => {
-    const args = [
-      '-json',
-      '-DateTimeOriginal',
-      '-OffsetTimeOriginal',
-      '-GPSLatitude',
-      '-GPSLongitude',
-      '-GPSAltitude',
-      '-n',
-      ...filePaths,
-    ];
-    execFile('exiftool', args, { maxBuffer: 50 * 1024 * 1024 }, (err, stdout) => {
-      if (err && !stdout) return resolve([]);
-      try { resolve(JSON.parse(stdout)); } catch { resolve([]); }
-    });
-  });
+  return exiftoolDaemon.readExifBatch(filePaths);
 });
 
 // GPS タグ書き込み

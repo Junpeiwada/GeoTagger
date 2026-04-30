@@ -3,7 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('api', {
   checkExiftool: ()                         => ipcRenderer.invoke('check-exiftool'),
   selectFolder:  ()                         => ipcRenderer.invoke('select-folder'),
-  selectGpx:     ()                         => ipcRenderer.invoke('select-gpx'),
+  selectGpx:     ()                         => ipcRenderer.invoke('select-gpx') as Promise<string[] | null>,
   readFile:      (p: string)                => ipcRenderer.invoke('read-file', p),
   listJpegs:     (folder: string)           => ipcRenderer.invoke('list-jpegs', folder),
   readExifBatch: (paths: string[])          => ipcRenderer.invoke('read-exif-batch', paths),

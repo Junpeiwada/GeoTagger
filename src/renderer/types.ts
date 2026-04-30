@@ -49,7 +49,7 @@ export interface MatchOptions {
 export interface Api {
   checkExiftool: () => Promise<string | null>;
   selectFolder:  () => Promise<string | null>;
-  selectGpx:     () => Promise<string | null>;
+  selectGpx:     () => Promise<string[] | null>;
   readFile:      (path: string) => Promise<string | null>;
   listJpegs:     (folder: string) => Promise<string[]>;
   readExifBatch: (paths: string[]) => Promise<Record<string, unknown>[]>;
