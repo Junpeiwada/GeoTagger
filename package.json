@@ -30,6 +30,7 @@
   },
   "dependencies": {
     "electron-store": "^8.2.0",
+    "geo-tz": "^8.1.6",
     "leaflet": "^1.9.4"
   }
 }

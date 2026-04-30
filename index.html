@@ -17,6 +17,14 @@
   ⚠ exiftool が見つかりません。<code>brew install exiftool</code> でインストールしてください。
 </div>
 
+<div id="load-overlay" class="hidden">
+  <div id="load-overlay-box">
+    <div id="load-overlay-label"></div>
+    <div id="load-overlay-bar-wrap"><div id="load-overlay-bar"></div></div>
+    <div id="load-overlay-count"></div>
+  </div>
+</div>
+
 <div id="app">
 
   <!-- 左ペイン -->
@@ -54,7 +62,7 @@
         </label>
       </div>
       <div id="tz-warning" class="info-text warning hidden">
-        OffsetTimeOriginal が取得できないファイルがあります。
+        ⚠ OffsetTimeOriginal がないファイルが <span id="tz-warning-count"></span> 枚あります（⚠ 警告扱いでスキップされます）。
       </div>
     </section>
 
@@ -73,6 +81,10 @@
       <button id="btn-preview" class="btn-primary hidden" disabled>プレビュー</button>
       <button id="btn-apply"   class="btn-accent"   disabled>付与</button>
     </div>
+    <div id="apply-progress" class="hidden">
+      <div id="apply-progress-bar-wrap"><div id="apply-progress-bar"></div></div>
+      <div id="apply-progress-label"></div>
+    </div>
 
   </aside>
 
@@ -82,48 +94,49 @@
       <div id="map"></div>
       <button id="btn-tile" class="btn-tile" data-tile="street">衛星</button>
     </div>
-    <div id="resize-handle"></div>
-    <div id="preview-panel">
-      <div id="preview-placeholder" class="preview-placeholder">写真リストから行を選択するとプレビューが表示されます</div>
-      <div id="preview-content" class="hidden">
-        <img id="preview-img" src="" alt="">
-        <div id="preview-meta">
-          <div class="meta-filename" id="meta-filename"></div>
-          <table class="meta-table">
-            <tr><th>撮影時刻</th><td id="meta-datetime"></td></tr>
-            <tr><th>UTC</th>    <td id="meta-utc"></td></tr>
-            <tr><th>座標</th>   <td id="meta-coords"></td></tr>
-            <tr><th>高度</th>   <td id="meta-alt"></td></tr>
-            <tr><th>時間差</th> <td id="meta-diff"></td></tr>
-            <tr><th>状態</th>   <td id="meta-status"></td></tr>
+
+    <!-- 写真リスト + プレビュー -->
+    <div id="bottom-pane">
+      <div id="photo-list-container">
+        <div id="photo-list-header">
+          <span id="photo-list-summary"></span>
+        </div>
+        <div id="photo-list-scroll">
+          <table id="photo-table">
+            <thead>
+              <tr>
+                <th data-col="filename">ファイル名</th>
+                <th data-col="datetime">撮影時刻</th>
+                <th data-col="utc">UTC</th>
+                <th data-col="coord">座標</th>
+                <th data-col="diff">時間差</th>
+                <th data-col="status">状態</th>
+              </tr>
+            </thead>
+            <tbody id="photo-tbody"></tbody>
           </table>
+        </div>
+      </div>
+      <div id="preview-panel">
+        <div id="preview-placeholder" class="preview-placeholder">写真リストから行を選択</div>
+        <div id="preview-content" class="hidden">
+          <img id="preview-img" src="" alt="">
+          <div id="preview-meta">
+            <div class="meta-filename" id="meta-filename"></div>
+            <table class="meta-table">
+              <tr><th>撮影時刻</th><td id="meta-datetime"></td></tr>
+              <tr><th>UTC</th>    <td id="meta-utc"></td></tr>
+              <tr><th>座標</th>   <td id="meta-coords"></td></tr>
+              <tr><th>高度</th>   <td id="meta-alt"></td></tr>
+              <tr><th>時間差</th> <td id="meta-diff"></td></tr>
+              <tr><th>状態</th>   <td id="meta-status"></td></tr>
+            </table>
+          </div>
         </div>
       </div>
     </div>
   </div>
 
-</div>
-
-<!-- 写真リスト -->
-<div id="photo-list-container">
-  <div id="photo-list-header">
-    <span id="photo-list-summary"></span>
-  </div>
-  <div id="photo-list-scroll">
-    <table id="photo-table">
-      <thead>
-        <tr>
-          <th>ファイル名</th>
-          <th>撮影時刻</th>
-          <th>UTC</th>
-          <th>座標</th>
-          <th>時間差</th>
-          <th>状態</th>
-        </tr>
-      </thead>
-      <tbody id="photo-tbody"></tbody>
-    </table>
-  </div>
 </div>
 
 </body>

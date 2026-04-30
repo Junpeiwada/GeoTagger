@@ -6,6 +6,7 @@ import * as path from 'path';
 import { execFile } from 'child_process';
 import * as fs from 'fs';
 import Store from 'electron-store';
+import { find as findTz, preCache as preCacheTz } from 'geo-tz';
 
 interface StoreSchema {
   photoFolder: string;
@@ -67,6 +68,9 @@ function createWindow(): void {
 
 const CSP_DEV  = "default-src 'self' http://localhost:* ws://localhost:*; img-src 'self' file: data: https://*.tile.openstreetmap.org https://server.arcgisonline.com blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval' http://localhost:*;";
 const CSP_PROD = "default-src 'self'; img-src 'self' file: data: https://*.tile.openstreetmap.org https://server.arcgisonline.com blob:; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';";
+
+// geo-tz の地理データを起動時にウォームアップ（初回 GPS 書き込みのレイテンシを回避）
+preCacheTz();
 
 app.whenReady().then(() => {
   const csp = process.env.NODE_ENV === 'development' ? CSP_DEV : CSP_PROD;
@@ -161,10 +165,36 @@ interface WriteGpsPayload {
   lon: number;
   ele: number | null;
   overwrite: boolean;
+  utcTime: string | null;
+  datetimeRaw: string; // 空文字の場合は DateTimeOriginal 書き換えをスキップ
+}
+
+function calcOffsetStr(lat: number, lon: number, utcIso: string): { offsetStr: string; localDto: string } | null {
+  try {
+    const tzNames = findTz(lat, lon);
+    if (!tzNames.length) return null;
+    const tzName = tzNames[0];
+    const utcDate = new Date(utcIso);
+    if (isNaN(utcDate.getTime())) return null;
+    // sv ロケールは "YYYY-MM-DD HH:MM:SS" 形式を返す（T区切りなし）
+    const locStr = utcDate.toLocaleString('sv', { timeZone: tzName });
+    const offsetMs = new Date(locStr + 'Z').getTime() - utcDate.getTime();
+    const offsetTotalMin = Math.round(offsetMs / 60000);
+    const sign = offsetTotalMin >= 0 ? '+' : '-';
+    const absMin = Math.abs(offsetTotalMin);
+    const hh = String(Math.floor(absMin / 60)).padStart(2, '0');
+    const mm = String(absMin % 60).padStart(2, '0');
+    const offsetStr = `${sign}${hh}:${mm}`;
+    // exiftool 形式: "YYYY:MM:DD HH:MM:SS"（ハイフンをコロンに統一）
+    const localDto = locStr.replace(/-/g, ':');
+    return { offsetStr, localDto };
+  } catch {
+    return null;
+  }
 }
 
 ipcMain.handle('write-gps', (_event, payload: WriteGpsPayload): Promise<boolean> => {
-  const { filePath, lat, lon, ele, overwrite } = payload;
+  const { filePath, lat, lon, ele, overwrite, utcTime, datetimeRaw } = payload;
 
   // filePath がフォルダとして登録済みのパスの下にあるか確認
   const resolved = path.resolve(filePath);
@@ -182,12 +212,40 @@ ipcMain.handle('write-gps', (_event, payload: WriteGpsPayload): Promise<boolean>
   if (ele !== null && !isNaN(ele)) {
     args.push(`-GPSAltitude=${Math.abs(ele)}`, `-GPSAltitudeRef=${ele >= 0 ? '0' : '1'}`);
   }
+
+  // GPS 座標と UTC 時刻から OffsetTimeOriginal と DateTimeOriginal を算出して書き換える
+  // datetimeRaw がない写真は DateTimeOriginal 自体が存在しないため書き換え対象外とする
+  if (utcTime && datetimeRaw) {
+    const tzResult = calcOffsetStr(lat, lon, utcTime);
+    if (tzResult) {
+      args.push(
+        `-DateTimeOriginal=${tzResult.localDto}`,
+        `-OffsetTimeOriginal=${tzResult.offsetStr}`,
+        `-OffsetTime=${tzResult.offsetStr}`,
+        `-OffsetTimeDigitized=${tzResult.offsetStr}`,
+      );
+    }
+  }
+
   if (overwrite) args.push('-overwrite_original');
   args.push(resolved);
 
   return new Promise((resolve) => {
     execFile('exiftool', args, (err) => resolve(!err));
   });
+});
+
+// 写真サムネイル取得（Base64）
+ipcMain.handle('read-image-base64', (_event, filePath: string): string | null => {
+  const resolved = path.resolve(filePath);
+  const photoFolder = store.get('photoFolder');
+  if (!resolved.startsWith(path.resolve(photoFolder) + path.sep)) return null;
+  try {
+    const data = fs.readFileSync(resolved);
+    return `data:image/jpeg;base64,${data.toString('base64')}`;
+  } catch {
+    return null;
+  }
 });
 
 // 設定の読み書き

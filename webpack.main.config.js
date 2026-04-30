@@ -16,5 +16,6 @@ module.exports = {
   externals: {
     'electron': 'commonjs electron',
     'electron-store': 'commonjs electron-store',
+    'geo-tz': 'commonjs geo-tz',
   },
 };

@@ -34,6 +34,8 @@ export interface WriteGpsPayload {
   lon: number;
   ele: number | null;
   overwrite: boolean;
+  utcTime: string | null; // ISO 8601 UTC（DTO+Offset書き換え用）
+  datetimeRaw: string;    // 元の DateTimeOriginal 文字列（空文字の場合は書き換えスキップ）
 }
 
 export interface MatchOptions {
@@ -51,7 +53,8 @@ export interface Api {
   readFile:      (path: string) => Promise<string | null>;
   listJpegs:     (folder: string) => Promise<string[]>;
   readExifBatch: (paths: string[]) => Promise<Record<string, unknown>[]>;
-  writeGps:      (payload: WriteGpsPayload) => Promise<boolean>;
+  writeGps:        (payload: WriteGpsPayload) => Promise<boolean>;
+  readImageBase64: (path: string) => Promise<string | null>;
   getSetting:    (key: string) => Promise<unknown>;
   setSetting:    (key: string, val: unknown) => Promise<void>;
 }
