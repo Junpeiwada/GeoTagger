@@ -4,6 +4,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 GPXトラックログを使って写真にジオタグを付与する macOS Electron アプリ。
 
+## 連携アプリ
+
+| アプリ | パス | 役割 |
+|-------|------|------|
+| **GeoShutter**（iPhoneアプリ） | `/Users/junpeiwada/Documents/Project/GeoShutter` | GPXトラックログを記録するiOSアプリ |
+
+GeoShutter が記録したGPXファイルは Dropbox 経由で Mac に同期される：
+
+```
+/Users/junpeiwada/Dropbox/アプリ/GeoShutter/
+```
+
+GeoTagger でGPXを読み込む際はこのフォルダを参照する。
+
 ## ドキュメント
 
 | ファイル | 内容 |
