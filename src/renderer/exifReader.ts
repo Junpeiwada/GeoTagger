@@ -4,7 +4,9 @@ export function normalizeExif(rawList: Record<string, unknown>[]): PhotoItem[] {
   return rawList.map(item => {
     const filePath   = (item['SourceFile'] as string) ?? '';
     const dtoRaw     = (item['DateTimeOriginal'] as string) ?? '';
-    const offsetStr  = (item['OffsetTimeOriginal'] as string) ?? null;
+    // OffsetTimeOriginal がない場合（Lightroom書き出しJPGなど）は OffsetTime にフォールバック
+    // 新しいタグを参照する場合は main.ts の readExifBatch にも追加すること
+    const offsetStr  = (item['OffsetTimeOriginal'] as string) ?? (item['OffsetTime'] as string) ?? null;
     const datetime   = parseSonyDateTime(dtoRaw, offsetStr);
     const hasGps     = !!(item['GPSLatitude'] && item['GPSLongitude']);
     return { filePath, datetimeRaw: dtoRaw, offsetStr, datetime, hasGps };

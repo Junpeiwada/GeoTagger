@@ -67,10 +67,12 @@ class ExiftoolDaemon {
     return new Promise((resolve) => {
       this.queue.push({ resolve });
       try {
+        // 取得タグを明示指定（新しいタグを使う場合はここに追加すること）
         const lines = [
           '-json',
           '-DateTimeOriginal',
           '-OffsetTimeOriginal',
+          '-OffsetTime',
           '-GPSLatitude',
           '-GPSLongitude',
           '-GPSAltitude',
