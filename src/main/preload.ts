@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('api', {
   readExifBatch: (paths: string[])          => ipcRenderer.invoke('read-exif-batch', paths),
   writeGps:      (payload: unknown)          => ipcRenderer.invoke('write-gps', payload),
   readImageBase64: (p: string)              => ipcRenderer.invoke('read-image-base64', p),
-  getSetting:    (key: string)              => ipcRenderer.invoke('get-setting', key),
-  setSetting:    (key: string, val: unknown) => ipcRenderer.invoke('set-setting', key, val),
+  getSetting:       (key: string)              => ipcRenderer.invoke('get-setting', key),
+  setSetting:       (key: string, val: unknown) => ipcRenderer.invoke('set-setting', key, val),
+  listGeoShutterGpx: ()                        => ipcRenderer.invoke('list-geoshutter-gpx') as Promise<string[]>,
 });

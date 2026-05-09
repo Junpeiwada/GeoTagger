@@ -22,22 +22,89 @@ function $<T extends HTMLElement>(id: string): T {
   return document.getElementById(id) as T;
 }
 
+// ===== リサイザー =====
+function initResizers(): void {
+  const sidebar    = $<HTMLElement>('sidebar');
+  const sidebarRes = $<HTMLElement>('sidebar-resizer');
+  const bottomPane = $<HTMLElement>('bottom-pane');
+  const mapRes     = $<HTMLElement>('map-resizer');
+  const rightPane  = $<HTMLElement>('right-pane');
+
+  const savedSidebarW = parseInt(localStorage.getItem('geo-sidebar-w') ?? '', 10) || 260;
+  sidebar.style.width = `${savedSidebarW}px`;
+
+  const savedBottomH = parseInt(localStorage.getItem('geo-bottom-h') ?? '', 10) || 220;
+  bottomPane.style.height = `${savedBottomH}px`;
+
+  sidebarRes.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startW = sidebar.offsetWidth;
+    sidebarRes.classList.add('dragging');
+    document.body.classList.add('resizing', 'resizing-col');
+
+    const onMove = (ev: MouseEvent) => {
+      const w = Math.max(180, Math.min(520, startW + ev.clientX - startX));
+      sidebar.style.width = `${w}px`;
+    };
+    const onUp = () => {
+      window.removeEventListener('blur', onUp);
+      sidebarRes.classList.remove('dragging');
+      document.body.classList.remove('resizing', 'resizing-col');
+      localStorage.setItem('geo-sidebar-w', String(sidebar.offsetWidth));
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    window.addEventListener('blur', onUp);
+  });
+
+  mapRes.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = bottomPane.offsetHeight;
+    mapRes.classList.add('dragging');
+    document.body.classList.add('resizing', 'resizing-row');
+
+    const onMove = (ev: MouseEvent) => {
+      const maxH = rightPane.offsetHeight - 120;
+      const h = Math.max(80, Math.min(maxH, startH - (ev.clientY - startY)));
+      bottomPane.style.height = `${h}px`;
+    };
+    const onUp = () => {
+      window.removeEventListener('blur', onUp);
+      mapRes.classList.remove('dragging');
+      document.body.classList.remove('resizing', 'resizing-row');
+      localStorage.setItem('geo-bottom-h', String(bottomPane.offsetHeight));
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    window.addEventListener('blur', onUp);
+  });
+}
+
 // ===== 起動 =====
 window.addEventListener('DOMContentLoaded', () => { init(); });
 
 async function init(): Promise<void> {
   buildTzSelect();
+  initResizers();
   initMap('map');
 
   const ver = await window.api.checkExiftool();
   if (!ver) $('exiftool-warning').classList.remove('hidden');
 
-  const [folder, tzMode, tzOffset, overwrite, maxDiff] = await Promise.all([
+  const [folder, tzMode, tzOffset, overwrite, maxDiff, gapFill, gapDist] = await Promise.all([
     window.api.getSetting('photoFolder'),
     window.api.getSetting('tzMode'),
     window.api.getSetting('tzOffset'),
     window.api.getSetting('overwriteGps'),
     window.api.getSetting('maxTimeDiff'),
+    window.api.getSetting('stationaryGapFill'),
+    window.api.getSetting('stationaryGapMaxDist'),
   ]);
 
   const tzModeVal = (tzMode as string) ?? 'auto';
@@ -47,7 +114,10 @@ async function init(): Promise<void> {
   ($<HTMLSelectElement>('tz-offset-select')).value = String(tzOffsetVal);
   ($<HTMLInputElement>('overwrite-gps')).checked = (overwrite as boolean) ?? false;
   ($<HTMLInputElement>('max-time-diff')).value = String((maxDiff as number) ?? 3600);
+  ($<HTMLInputElement>('stationary-gap-fill')).checked = (gapFill as boolean) ?? true;
+  ($<HTMLInputElement>('stationary-gap-dist')).value = String((gapDist as number) ?? 50);
   toggleTzSelect(tzModeVal === 'manual');
+  toggleGapDistInput(($<HTMLInputElement>('stationary-gap-fill')).checked);
 
   if (folder) await loadPhotoFolder(folder as string);
 
@@ -117,6 +187,16 @@ function setupEvents(): void {
   $<HTMLInputElement>('max-time-diff').addEventListener('change', (e) => {
     window.api.setSetting('maxTimeDiff', parseInt((e.target as HTMLInputElement).value, 10));
   });
+  $<HTMLInputElement>('stationary-gap-fill').addEventListener('change', (e) => {
+    const checked = (e.target as HTMLInputElement).checked;
+    window.api.setSetting('stationaryGapFill', checked);
+    toggleGapDistInput(checked);
+    if (gpxData && photoItems.length) runPreview();
+  });
+  $<HTMLInputElement>('stationary-gap-dist').addEventListener('change', (e) => {
+    window.api.setSetting('stationaryGapMaxDist', parseInt((e.target as HTMLInputElement).value, 10));
+    if (gpxData && photoItems.length) runPreview();
+  });
 
   // テーブルヘッダーのソート
   document.querySelectorAll<HTMLTableCellElement>('#photo-table thead th').forEach((th) => {
@@ -134,6 +214,7 @@ function setupEvents(): void {
     });
   });
 
+  $('btn-geoshutter-load').addEventListener('click', () => autoLoadGeoShutterGpx());
   $('btn-apply').addEventListener('click', runApply);
   $('btn-tile').addEventListener('click', () => {
     const btn = $<HTMLButtonElement>('btn-tile');
@@ -278,7 +359,11 @@ async function loadPhotoFolder(folderPath: string): Promise<void> {
   info.textContent = `${photoItems.length} 枚`;
   renderPhotoList(matchResults);
   updateActionButtons();
-  if (gpxData) await runPreview();
+  if (!loadedGpxFiles.length) {
+    await autoLoadGeoShutterGpx();
+  } else if (gpxData) {
+    await runPreview();
+  }
 }
 
 // ===== プレビュー =====
@@ -290,12 +375,16 @@ async function runPreview(): Promise<void> {
   const tzOffset  = parseFloat($<HTMLSelectElement>('tz-offset-select').value);
   const maxDiff   = parseInt($<HTMLInputElement>('max-time-diff').value, 10);
   const overwrite = $<HTMLInputElement>('overwrite-gps').checked;
+  const gapFill   = $<HTMLInputElement>('stationary-gap-fill').checked;
+  const gapDist   = parseInt($<HTMLInputElement>('stationary-gap-dist').value, 10);
 
   matchResults = matchAll(gpxData.points, photoItems, {
     maxTimeDiff: maxDiff,
     overwriteGps: overwrite,
     tzMode: tzMode as 'auto' | 'manual',
     tzOffsetHours: tzOffset,
+    stationaryGapFill: gapFill,
+    stationaryGapMaxDist: gapDist,
   });
 
   renderPhotoList(matchResults);
@@ -415,7 +504,7 @@ function renderPhotoList(results: MatchResult[]): void {
     if (realIdx === selectedIndex) tr.classList.add('selected');
 
     const dtStr  = r.datetimeRaw ? r.datetimeRaw.slice(0, 16).replace(/^(\d{4}):(\d{2}):(\d{2})/, '$1-$2-$3') + (r.offsetStr ? ` ${r.offsetStr}` : '') : '—';
-    const utcStr = r.utcTime ? r.utcTime.toISOString().replace('T', ' ').slice(0, 19) : '—';
+    const utcStr = gpxTimeToLocal(r.match?.time ?? null, r.offsetStr);
     const coord  = r.match ? `${r.match.lat.toFixed(4)}, ${r.match.lon.toFixed(4)}` : '—';
     const diff   = r.match ? fmtDiff(r.match.diffSec) : '—';
     const cls    = statusClass(r.status);
@@ -467,13 +556,24 @@ function showPreview(r: MatchResult): void {
   $('meta-datetime').textContent  = r.datetimeRaw
     ? r.datetimeRaw.slice(0, 16).replace(/^(\d{4}):(\d{2}):(\d{2})/, '$1-$2-$3') + (r.offsetStr ? ` (${r.offsetStr})` : '')
     : '—';
-  $('meta-utc').textContent       = r.utcTime ? r.utcTime.toISOString().replace('T', ' ').slice(0, 19) + ' UTC' : '—';
+  $('meta-utc').textContent       = gpxTimeToLocal(r.match?.time ?? null, r.offsetStr);
   $('meta-coords').textContent    = r.match ? `${r.match.lat.toFixed(5)}, ${r.match.lon.toFixed(5)}` : '—';
   $('meta-alt').textContent       = r.match?.ele != null ? `${r.match.ele.toFixed(1)} m` : '—';
   $('meta-diff').textContent      = r.match ? fmtDiff(r.match.diffSec) : '—';
   const statusEl = $('meta-status');
   statusEl.textContent = r.statusLabel;
   statusEl.className   = statusClass(r.status);
+}
+
+function gpxTimeToLocal(gpxTime: Date | null, offsetStr: string | null): string {
+  if (!gpxTime) return '—';
+  if (!offsetStr) return gpxTime.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+  const m = offsetStr.match(/^([+-])(\d{2}):(\d{2})$/);
+  if (!m) return gpxTime.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+  const sign = m[1] === '+' ? 1 : -1;
+  const offsetMs = sign * (parseInt(m[2]) * 60 + parseInt(m[3])) * 60000;
+  const local = new Date(gpxTime.getTime() + offsetMs);
+  return local.toISOString().replace('T', ' ').slice(0, 16) + ` ${offsetStr}`;
 }
 
 // ===== ユーティリティ =====
@@ -492,6 +592,11 @@ function toggleTzSelect(manual: boolean): void {
   $<HTMLSelectElement>('tz-offset-select').disabled = !manual;
 }
 
+function toggleGapDistInput(enabled: boolean): void {
+  $<HTMLInputElement>('stationary-gap-dist').disabled = !enabled;
+  $('stationary-gap-dist-row').style.opacity = enabled ? '' : '0.4';
+}
+
 function updateActionButtons(): void {
   $<HTMLButtonElement>('btn-apply').disabled = true;
 }
@@ -500,6 +605,7 @@ function setBusy(busy: boolean): void {
   $<HTMLButtonElement>('btn-apply').disabled = busy;
   $<HTMLButtonElement>('btn-select-folder').disabled = busy;
   $<HTMLButtonElement>('btn-select-gpx').disabled = busy;
+  $<HTMLButtonElement>('btn-geoshutter-load').disabled = busy;
   $<HTMLButtonElement>('btn-clear-gpx').disabled = busy || loadedGpxFiles.length === 0;
 }
 
@@ -509,4 +615,53 @@ function statusClass(status: string): string {
 }
 
 function basename(p: string): string { return p.split('/').pop() ?? p; }
+
+// ===== GeoShutter 自動読み込み =====
+function parseGeoShutterFilename(name: string): { startMs: number; endMs: number } | null {
+  const m = name.match(/GeoShutter_(\d{4}-\d{2}-\d{2})(?:_(\d{4}-\d{2}-\d{2}))?/);
+  if (!m) return null;
+  const startMs = new Date(m[1] + 'T00:00:00Z').getTime();
+  const endMs   = new Date((m[2] ?? m[1]) + 'T23:59:59Z').getTime();
+  return { startMs, endMs };
+}
+
+async function autoLoadGeoShutterGpx(): Promise<void> {
+  if (!photoItems.length) return;
+
+  const BUFFER_MS = 2 * 24 * 60 * 60 * 1000; // 2日バッファ（タイムゾーン差を吸収）
+
+  const utcTimes = photoItems.map(p => p.datetime).filter((d): d is Date => d !== null);
+  let photoMinMs: number;
+  let photoMaxMs: number;
+
+  if (utcTimes.length) {
+    photoMinMs = utcTimes.reduce((min, d) => Math.min(min, d.getTime()), Infinity);
+    photoMaxMs = utcTimes.reduce((max, d) => Math.max(max, d.getTime()), -Infinity);
+  } else {
+    // offsetStr なし → raw 文字列を UTC 近似として利用
+    const rawDates = photoItems
+      .map(p => p.datetimeRaw)
+      .filter(s => !!s)
+      .map(s => new Date(s.replace(/^(\d{4}):(\d{2}):(\d{2})/, '$1-$2-$3') + 'Z'))
+      .filter(d => !isNaN(d.getTime()));
+    if (!rawDates.length) return;
+    photoMinMs = rawDates.reduce((min, d) => Math.min(min, d.getTime()), Infinity);
+    photoMaxMs = rawDates.reduce((max, d) => Math.max(max, d.getTime()), -Infinity);
+  }
+
+  setBusy(true);
+  try {
+    const gpxPaths = await window.api.listGeoShutterGpx();
+    for (const fp of gpxPaths) {
+      const name = fp.split('/').pop() ?? '';
+      const dates = parseGeoShutterFilename(name);
+      if (!dates) continue;
+      if (dates.endMs + BUFFER_MS >= photoMinMs && dates.startMs - BUFFER_MS <= photoMaxMs) {
+        await addGpxFile(fp);
+      }
+    }
+  } finally {
+    setBusy(false);
+  }
+}
 

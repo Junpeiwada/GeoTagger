@@ -1,5 +1,9 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+body.resizing { -webkit-user-select: none; user-select: none; cursor: inherit; }
+body.resizing-col { cursor: col-resize !important; }
+body.resizing-row { cursor: row-resize !important; }
+
 :root {
   --bg:         #1e1e1e;
   --surface:    #2a2a2a;
@@ -73,12 +77,46 @@ html, body {
   width: var(--sidebar-w);
   flex-shrink: 0;
   background: var(--surface);
-  border-right: 1px solid var(--border);
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   padding: 8px 12px;
   gap: 0;
+}
+
+/* リサイザー共通 */
+#sidebar-resizer,
+#map-resizer {
+  flex-shrink: 0;
+  background: var(--border);
+  transition: background 0.15s;
+  position: relative;
+  z-index: 10;
+}
+#sidebar-resizer {
+  width: 4px;
+  cursor: col-resize;
+}
+#map-resizer {
+  height: 4px;
+  cursor: row-resize;
+}
+#sidebar-resizer::after,
+#map-resizer::after {
+  content: '';
+  position: absolute;
+}
+#sidebar-resizer::after {
+  inset: 0 -4px;
+}
+#map-resizer::after {
+  inset: -4px 0;
+}
+#sidebar-resizer:hover,
+#sidebar-resizer.dragging,
+#map-resizer:hover,
+#map-resizer.dragging {
+  background: var(--accent);
 }
 
 .sidebar-section {
@@ -266,6 +304,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   border: 1px solid var(--border);
 }
 .btn-secondary:hover:not(:disabled) { background: #3a3a3a; }
+.btn-full { flex: 1; }
 
 .btn-primary {
   flex: 1;
@@ -319,7 +358,6 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 #bottom-pane {
   height: var(--list-h);
   flex-shrink: 0;
-  border-top: 1px solid var(--border);
   display: flex;
   overflow: hidden;
 }

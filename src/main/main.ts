@@ -3,6 +3,7 @@ declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
 
 import { app, BrowserWindow, ipcMain, dialog, session } from 'electron';
 import * as path from 'path';
+import * as os from 'os';
 import { execFile, spawn, ChildProcess } from 'child_process';
 import * as fs from 'fs';
 import Store from 'electron-store';
@@ -95,6 +96,8 @@ interface StoreSchema {
   overwriteGps: boolean;
   maxTimeDiff: number;
   previewPaneHeight: number;
+  stationaryGapFill: boolean;
+  stationaryGapMaxDist: number;
 }
 
 const store = new Store<StoreSchema>({
@@ -106,6 +109,8 @@ const store = new Store<StoreSchema>({
     overwriteGps: false,
     maxTimeDiff: 3600,
     previewPaneHeight: 200,
+    stationaryGapFill: true,
+    stationaryGapMaxDist: 50,
   },
 });
 
@@ -211,9 +216,9 @@ ipcMain.handle('read-file', (_event, filePath: string): string | null => {
 // フォルダ内の JPEG リストアップ
 ipcMain.handle('list-jpegs', (_event, folderPath: string): string[] => {
   try {
-    return fs.readdirSync(folderPath)
-      .filter(f => /\.(jpg|jpeg)$/i.test(f))
-      .map(f => path.join(folderPath, f));
+    return fs.readdirSync(folderPath, { withFileTypes: true })
+      .filter(entry => entry.isFile() && /\.(jpg|jpeg)$/i.test(entry.name))
+      .map(entry => path.join(folderPath, entry.name));
   } catch {
     return [];
   }
@@ -318,3 +323,16 @@ ipcMain.handle('read-image-base64', (_event, filePath: string): string | null =>
 // 設定の読み書き
 ipcMain.handle('get-setting', (_event, key: keyof StoreSchema) => store.get(key));
 ipcMain.handle('set-setting', (_event, key: keyof StoreSchema, value: unknown) => store.set(key, value as StoreSchema[typeof key]));
+
+// GeoShutter フォルダ内の GPX ファイル一覧
+const GEOSHUTTER_FOLDER = path.join(os.homedir(), 'Dropbox', 'アプリ', 'GeoShutter');
+
+ipcMain.handle('list-geoshutter-gpx', (): string[] => {
+  try {
+    return fs.readdirSync(GEOSHUTTER_FOLDER)
+      .filter(name => /\.gpx$/i.test(name))
+      .map(name => path.join(GEOSHUTTER_FOLDER, name));
+  } catch {
+    return [];
+  }
+});

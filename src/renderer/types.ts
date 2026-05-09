@@ -43,6 +43,8 @@ export interface MatchOptions {
   overwriteGps: boolean;
   tzMode: 'auto' | 'manual';
   tzOffsetHours: number;
+  stationaryGapFill: boolean;
+  stationaryGapMaxDist: number; // meters
 }
 
 // window.api の型定義
@@ -55,8 +57,9 @@ export interface Api {
   readExifBatch: (paths: string[]) => Promise<Record<string, unknown>[]>;
   writeGps:        (payload: WriteGpsPayload) => Promise<boolean>;
   readImageBase64: (path: string) => Promise<string | null>;
-  getSetting:    (key: string) => Promise<unknown>;
-  setSetting:    (key: string, val: unknown) => Promise<void>;
+  getSetting:        (key: string) => Promise<unknown>;
+  setSetting:        (key: string, val: unknown) => Promise<void>;
+  listGeoShutterGpx: () => Promise<string[]>;
 }
 
 declare global {

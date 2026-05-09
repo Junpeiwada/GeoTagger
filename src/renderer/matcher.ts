@@ -1,11 +1,42 @@
 import { GpxPoint, MatchOptions, MatchResult, PhotoItem } from './types';
 
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371000;
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+  const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function findStationaryGap(
+  points: GpxPoint[],
+  target: Date,
+  maxDistMeters: number,
+): GpxPoint | null {
+  if (points.length < 2) return null;
+  const t = target.getTime();
+  let lo = 0, hi = points.length - 1;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (points[mid].time.getTime() < t) lo = mid + 1;
+    else hi = mid;
+  }
+  // lo = first index with time >= target
+  if (lo === 0 || lo >= points.length) return null;
+  const before = points[lo - 1];
+  const after  = points[lo];
+  const dist = haversineMeters(before.lat, before.lon, after.lat, after.lon);
+  return dist <= maxDistMeters ? before : null;
+}
+
 export function matchAll(
   gpxPoints: GpxPoint[],
   photos: PhotoItem[],
   opts: MatchOptions,
 ): MatchResult[] {
-  const { maxTimeDiff, overwriteGps, tzMode, tzOffsetHours } = opts;
+  const { maxTimeDiff, overwriteGps, tzMode, tzOffsetHours, stationaryGapFill, stationaryGapMaxDist } = opts;
 
   return photos.map(photo => {
     let utcTime = photo.datetime;
@@ -39,6 +70,13 @@ export function matchAll(
     const matchPt = { ...nearest, diffSec };
 
     if (diffSec > maxTimeDiff) {
+      if (stationaryGapFill) {
+        const gapPt = findStationaryGap(gpxPoints, utcTime, stationaryGapMaxDist);
+        if (gapPt) {
+          const gapDiffSec = Math.abs((utcTime.getTime() - gapPt.time.getTime()) / 1000);
+          return { ...photo, utcTime, status: 'ok', statusLabel: '✓ 静止補完', match: { ...gapPt, diffSec: gapDiffSec } } as MatchResult;
+        }
+      }
       return { ...photo, utcTime, status: 'warning', statusLabel: `⚠ 時間差 ${fmtDiff(diffSec)}`, match: matchPt } as MatchResult;
     }
 

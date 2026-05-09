@@ -36,6 +36,9 @@
         <span class="path-display">ここにGPXをドロップ（複数可）</span>
       </div>
       <div class="btn-row">
+        <button id="btn-geoshutter-load" class="btn-secondary btn-full">GeoShutterから読み込む</button>
+      </div>
+      <div class="btn-row">
         <button id="btn-select-gpx" class="btn-secondary">選択…</button>
         <button id="btn-clear-gpx" class="btn-secondary" disabled>クリア</button>
       </div>
@@ -77,6 +80,13 @@
         <span>最大時間差</span>
         <input type="number" id="max-time-diff" value="3600" min="1" max="86400"> 秒
       </div>
+      <label class="checkbox-row">
+        <input type="checkbox" id="stationary-gap-fill" checked> 静止ギャップ補完
+      </label>
+      <div class="input-row-labeled" id="stationary-gap-dist-row">
+        <span>補完距離閾値</span>
+        <input type="number" id="stationary-gap-dist" value="50" min="1" max="1000"> m
+      </div>
     </section>
 
     <div class="action-buttons">
@@ -90,12 +100,16 @@
 
   </aside>
 
+  <div id="sidebar-resizer"></div>
+
   <!-- 右ペイン -->
   <div id="right-pane">
     <div id="map-container">
       <div id="map"></div>
       <button id="btn-tile" class="btn-tile" data-tile="street">衛星</button>
     </div>
+
+    <div id="map-resizer"></div>
 
     <!-- 写真リスト + プレビュー -->
     <div id="bottom-pane">
@@ -109,7 +123,7 @@
               <tr>
                 <th data-col="filename">ファイル名</th>
                 <th data-col="datetime">撮影時刻</th>
-                <th data-col="utc">UTC</th>
+                <th data-col="utc">GPX時刻</th>
                 <th data-col="coord">座標</th>
                 <th data-col="diff">時間差</th>
                 <th data-col="status">状態</th>
@@ -127,7 +141,7 @@
             <div class="meta-filename" id="meta-filename"></div>
             <table class="meta-table">
               <tr><th>撮影時刻</th><td id="meta-datetime"></td></tr>
-              <tr><th>UTC</th>    <td id="meta-utc"></td></tr>
+              <tr><th>GPX時刻</th> <td id="meta-utc"></td></tr>
               <tr><th>座標</th>   <td id="meta-coords"></td></tr>
               <tr><th>高度</th>   <td id="meta-alt"></td></tr>
               <tr><th>時間差</th> <td id="meta-diff"></td></tr>
