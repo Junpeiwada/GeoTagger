@@ -80,7 +80,7 @@ export function matchAll(
       return { ...photo, utcTime, status: 'warning', statusLabel: `⚠ 時間差 ${fmtDiff(diffSec)}`, match: matchPt } as MatchResult;
     }
 
-    return { ...photo, utcTime, status: 'ok', statusLabel: '✓ 完了', match: matchPt } as MatchResult;
+    return { ...photo, utcTime, status: 'ok', statusLabel: '✓ マッチ済み', match: matchPt } as MatchResult;
   });
 }
 
