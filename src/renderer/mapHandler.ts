@@ -41,7 +41,9 @@ export function drawGpxTrack(points: GpxPoint[]): void {
   gpxLayer.clearLayers();
   if (!points.length) return;
   const latlngs = points.map(p => [p.lat, p.lon] as L.LatLngTuple);
-  const line = L.polyline(latlngs, { color: '#4a9eff', weight: 2, opacity: 0.7 });
+  const outline = L.polyline(latlngs, { color: '#ffffff', weight: 6, opacity: 1.0 });
+  const line = L.polyline(latlngs, { color: '#000000', weight: 2, opacity: 1.0 });
+  gpxLayer.addLayer(outline);
   gpxLayer.addLayer(line);
   map.fitBounds(line.getBounds(), { padding: [20, 20] });
 }

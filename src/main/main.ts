@@ -9,6 +9,15 @@ import * as fs from 'fs';
 import Store from 'electron-store';
 import { find as findTz, preCache as preCacheTz } from 'geo-tz';
 
+// パッケージ済みアプリはシェルのPATHを継承しないため、Homebrewの一般的なパスを補完する
+const EXIFTOOL_PATH = (() => {
+  const candidates = ['/opt/homebrew/bin/exiftool', '/usr/local/bin/exiftool', '/usr/bin/exiftool'];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return 'exiftool';
+})();
+
 // ===== exiftool 常駐デーモン =====
 class ExiftoolDaemon {
   private proc: ChildProcess | null = null;
@@ -17,7 +26,7 @@ class ExiftoolDaemon {
 
   start(): void {
     if (this.proc) return;
-    this.proc = spawn('exiftool', ['-stay_open', 'True', '-@', '-'], {
+    this.proc = spawn(EXIFTOOL_PATH, ['-stay_open', 'True', '-@', '-'], {
       stdio: ['pipe', 'pipe', 'ignore'],
     });
     this.proc.stdout!.setEncoding('utf-8');
@@ -37,6 +46,11 @@ class ExiftoolDaemon {
           waiter.resolve([]);
         }
       }
+    });
+    this.proc.on('error', () => {
+      this.proc = null;
+      for (const w of this.queue) w.resolve([]);
+      this.queue = [];
     });
     this.proc.on('exit', () => {
       this.proc = null;
@@ -180,7 +194,7 @@ app.on('will-quit', () => exiftoolDaemon.terminate());
 // exiftool の存在確認
 ipcMain.handle('check-exiftool', async (): Promise<string | null> => {
   return new Promise((resolve) => {
-    execFile('exiftool', ['-ver'], (err, stdout) => {
+    execFile(EXIFTOOL_PATH, ['-ver'], (err, stdout) => {
       resolve(err ? null : stdout.trim());
     });
   });
@@ -303,7 +317,7 @@ ipcMain.handle('write-gps', (_event, payload: WriteGpsPayload): Promise<boolean>
   args.push(resolved);
 
   return new Promise((resolve) => {
-    execFile('exiftool', args, (err) => resolve(!err));
+    execFile(EXIFTOOL_PATH, args, (err) => resolve(!err));
   });
 });
 

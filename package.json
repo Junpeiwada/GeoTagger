@@ -1,5 +1,6 @@
 {
   "name": "geotagger",
+  "productName": "GeoTagger",
   "version": "0.1.0",
   "description": "GPXトラックログを使って写真にジオタグを付与するmacOSアプリ",
   "main": ".webpack/main",
@@ -8,7 +9,8 @@
     "dev": "electron-forge start",
     "build": "electron-forge package",
     "typecheck": "tsc --noEmit",
-    "dist": "electron-forge make"
+    "dist": "electron-forge make",
+    "M系Macビルドインストール": "npm run typecheck && npm run build && rm -rf /Applications/GeoTagger.app && cp -R out/GeoTagger-darwin-arm64/GeoTagger.app /Applications/ && echo \"正常完了 バージョン $(node -p \\\"require('./package.json').version\\\")\" && say -v Kyoko \"GeoTaggerのビルドとインストールが完了しました。バージョン$(node -p \\\"require('./package.json').version\\\")\" || (echo \"エラーが発生しました\" && say -v Kyoko \"GeoTaggerでエラーが発生しました\" && exit 1)"
   },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.1",
@@ -18,6 +20,7 @@
     "@electron-forge/plugin-webpack": "^7.11.1",
     "@electron-forge/shared-types": "^7.11.1",
     "@electron/fuses": "^1.8.0",
+    "@electron/rebuild": "^4.0.4",
     "@types/leaflet": "^1.9.0",
     "@types/node": "^20.0.0",
     "css-loader": "^7.1.4",
